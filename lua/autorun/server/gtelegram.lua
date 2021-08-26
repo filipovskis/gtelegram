@@ -7,8 +7,9 @@ Email: tochonement@gmail.com
 
 --]]
 
-local gtelegram = {}
-_G.gtelegram = gtelegram
+if not file.Exists("gtelegram", "DATA") then
+    file.CreateDir("gtelegram")
+end
 
 -- SECTION Class "Bot"
 
@@ -17,23 +18,21 @@ BOT.__index = BOT
 
 AccessorFunc(BOT, "pollRate", "PollRate")
 
--- Local
+-- Basic
 
-local function getChats(json)
-    local chats = {}
-
-    for _, result in pairs(json.result) do
-        local userId = tostring(result.message.chat.id)
-
-        if not table.HasValue(chats, userId) then
-            table.insert(chats, userId)
-        end
-    end
-
-    return chats
+function BOT:GetPath()
+    return "gtelegram/bot" .. self.id .. ".dat"
 end
 
--- Basic
+function BOT:GetAPI(method)
+    local url = "https://api.telegram.org/bot" .. self.id .. ":" .. self.token
+
+    if method then
+        url = url .. "/" .. method
+    end
+
+    return url
+end
 
 function BOT:Queue(func, ...)
     table.insert(self.queue, {
@@ -45,6 +44,10 @@ end
 function BOT:Request(method, data, func)
     data = data or {}
 
+    for k, v in pairs(data) do
+        data[k] = tostring(v)
+    end
+
     self.busy = true
 
     http.Post(self:GetAPI(method), data, function(body)
@@ -55,11 +58,13 @@ function BOT:Request(method, data, func)
                 func(self, result, body)
             end
         else
-            print("Error occured: ", data.error_code, data.description)
+            print("Error occured: ", result.error_code, result.description)
         end
 
         self.busy = false
     end)
+
+    self:CallHook("OnRequest", nil, method, data)
 end
 
 function BOT:Think()
@@ -82,16 +87,6 @@ function BOT:Think()
     end
 end
 
-function BOT:GetAPI(method)
-    local url = "https://api.telegram.org/bot" .. self.id .. ":" .. self.token
-
-    if method then
-        url = url .. "/" .. method
-    end
-
-    return url
-end
-
 function BOT:ForEachChat(callback)
     for _, chatId in ipairs(self.chats) do
         callback(chatId)
@@ -99,9 +94,109 @@ function BOT:ForEachChat(callback)
 end
 
 function BOT:Poll()
-    self:Request("getUpdates", {}, function(bot, jsonData)
-        bot.chats = getChats(jsonData)
+    self:Request("getUpdates", {
+        ["offset"] = self.lastUpdate,
+        ["limit"] = 10
+    }, function(bot, data)
+        local saveRequired = false
+
+        for _, result in ipairs(data.result) do
+            saveRequired = true
+
+            local updateId = result["update_id"]
+            local message = result["message"]
+
+            local chatId = tostring(message.chat.id)
+
+            if not bot:IsChatExists(chatId) then
+                bot:AddChat(chatId)
+            end
+
+            bot.lastUpdate = updateId + 1
+
+            self:CallHook("OnUpdate", nil, result)
+        end
+
+        if saveRequired then
+            bot:Save()
+        end
     end)
+end
+
+function BOT:AddChat(chatId)
+    table.insert(self.chats, chatId)
+
+    self:CallHook("OnChatAdded", nil, chatId)
+end
+
+function BOT:RemoveChat(chatId)
+    for index, v in ipairs(self.chats) do
+        if v == chatId then
+            table.remove(self.chats, index)
+            self:CallHook("OnChatRemove", nil, v)
+        end
+    end
+end
+
+function BOT:IsChatExists(chatId)
+    for _, v in ipairs(self.chats) do
+        if v == chatId then
+            return true
+        end
+    end
+
+    return false
+end
+
+function BOT:Save()
+    file.Write(self:GetPath(), util.TableToJSON({
+        chats = self.chats,
+        lastUpdate = self.lastUpdate
+    }))
+
+    self:CallHook("OnSave")
+end
+
+function BOT:Load()
+    local path = self:GetPath()
+
+    if file.Exists(path, "DATA") then
+        local json = file.Read(path, "DATA")
+        if json then
+            local data = util.JSONToTable(json)
+
+            self.chats = data.chats
+            self.lastUpdate = data.lastUpdate
+        end
+    end
+end
+
+function BOT:AddHook(name, id, func)
+    self.hooks[name] = self.hooks[name] or {}
+    self.hooks[name][id] = func
+end
+
+function BOT:RemoveHook(name, id)
+    self.hooks[name][id] = nil
+end
+
+function BOT:CallHook(name, ignoreDefault, ...)
+    for name2, hooks in pairs(self.hooks) do
+        if name2 == name then
+            for _, func in pairs(hooks) do
+                local value = func(self, ...)
+                if value then
+                    return value
+                end
+            end
+
+            break
+        end
+    end
+
+    if not ignoreDefault then
+        return self[name](self, ...)
+    end
 end
 
 -- Additional
@@ -123,7 +218,30 @@ function BOT:SendMessage(text, _data)
     end, _data)
 end
 
-function BOT:AddCommand()
+function BOT:AddCommand(id, callback)
+    self.commands[id] = callback
+end
+
+
+-- Override
+
+function BOT:OnSave()
+    
+end
+
+function BOT:OnChatAdded()
+    
+end
+
+function BOT:OnChatRemove()
+    
+end
+
+function BOT:OnRequest()
+    
+end
+
+function BOT:OnUpdate()
     
 end
 
@@ -131,31 +249,40 @@ end
 
 -- ANCHOR Functions
 
-function gtelegram.CreateBot(id, token)
+function GTelegram(id, token)
     local bot = setmetatable({
         queue = {},
         chats = {},
+        commands = {},
+        hooks = {},
+        pollRate = 5,
+        lastUpdate = 0,
         token = token,
-        id = id,
-        pollRate = 5
+        id = id
     }, BOT)
+
+    bot:Load()
 
     return bot
 end
 
 -- ANCHOR Test
 
-local bot = gtelegram.CreateBot("1964975924", "AAGjxnVjq8Z359xYcuHWRbBTgVJxY0kenD0")
-bot:SetPollRate(1)
+local bot = GTelegram("1988948436", "AAEWrMo-lo_wbvKhWsfI06Dx2Vyn8o8AuiQ")
+bot:SetPollRate(5)
 bot:SendMessage("Hello")
-bot:SendMessage("How are you?")
-bot:SendMessage("Nice to meet you")
-bot:SendMessage("<b>Hello</b>", {
-    ["parse_mode"] = "HTML"
-})
-bot:SendMessage("*Hello*", {
-    ["parse_mode"] = "MarkdownV2"
-})
+bot:SendMessage("Hello2")
+-- bot:AddHook("OnRequest", "Test", function(self, method, data)
+--     print(method, data)
+-- end)
+-- bot:SendMessage("How are you?")
+-- bot:SendMessage("Nice to meet you")
+-- bot:SendMessage("<b>Hello</b>", {
+--     ["parse_mode"] = "HTML"
+-- })
+-- bot:SendMessage("*Hello*", {
+--     ["parse_mode"] = "MarkdownV2"
+-- })
 -- bot:Queue(function(bot)
 --     bot:ForEachChat(function(chatId)
 --         bot:Request("sendChatAction", {
@@ -168,3 +295,5 @@ bot:SendMessage("*Hello*", {
 timer.Create("Test", 0.1, 0, function()
     bot:Think()
 end)
+
+hook.Run("GTelegram.OnLoaded")

@@ -10,10 +10,12 @@ Email: tochonement@gmail.com
 local gtelegram = {}
 _G.gtelegram = gtelegram
 
--- ANCHOR Class "Bot"
+-- SECTION Class "Bot"
 
 local BOT = {}
 BOT.__index = BOT
+
+AccessorFunc(BOT, "pollRate", "PollRate")
 
 -- Local
 
@@ -48,7 +50,7 @@ function BOT:Request(method, data, func)
     http.Post(self:GetAPI(method), data, function(body)
         local result = util.JSONToTable(body)
 
-        if result.ok then
+        if result and result.ok then
             if func then
                 func(self, result, body)
             end
@@ -67,10 +69,16 @@ function BOT:Think()
         return
     end
 
-    if query then
-        query.func(self, unpack(query.args))
+    if (self.nextPoll or 0) <= CurTime() then
+        self:Poll()
 
-        table.remove(self.queue, 1)
+        self.nextPoll = CurTime() + self.pollRate
+    else
+        if query then
+            query.func(self, unpack(query.args))
+
+            table.remove(self.queue, 1)
+        end
     end
 end
 
@@ -84,21 +92,19 @@ function BOT:GetAPI(method)
     return url
 end
 
--- Additional
-
-function BOT:Poll()
-    self:Queue(function(bot)
-        bot:Request("getUpdates", {}, function(bot, jsonData)
-            bot.chats = getChats(jsonData)
-        end)
-    end)
-end
-
 function BOT:ForEachChat(callback)
     for _, chatId in ipairs(self.chats) do
         callback(chatId)
     end
 end
+
+function BOT:Poll()
+    self:Request("getUpdates", {}, function(bot, jsonData)
+        bot.chats = getChats(jsonData)
+    end)
+end
+
+-- Additional
 
 function BOT:SendMessage(text, _data)
     _data = _data or {}
@@ -108,14 +114,20 @@ function BOT:SendMessage(text, _data)
         if data.chatId then
             bot:Request("sendMessage", data)
         else
-            for _, chatId in ipairs(bot.chats) do
+            bot:ForEachChat(function(chatId)
                 data["chat_id"] = chatId
 
                 bot:Request("sendMessage", data)
-            end
+            end)
         end
     end, _data)
 end
+
+function BOT:AddCommand()
+    
+end
+
+-- !SECTION
 
 -- ANCHOR Functions
 
@@ -124,10 +136,9 @@ function gtelegram.CreateBot(id, token)
         queue = {},
         chats = {},
         token = token,
-        id = id
+        id = id,
+        pollRate = 5
     }, BOT)
-
-    bot:Poll()
 
     return bot
 end
@@ -135,9 +146,24 @@ end
 -- ANCHOR Test
 
 local bot = gtelegram.CreateBot("1964975924", "AAGjxnVjq8Z359xYcuHWRbBTgVJxY0kenD0")
+bot:SetPollRate(1)
 bot:SendMessage("Hello")
 bot:SendMessage("How are you?")
 bot:SendMessage("Nice to meet you")
+bot:SendMessage("<b>Hello</b>", {
+    ["parse_mode"] = "HTML"
+})
+bot:SendMessage("*Hello*", {
+    ["parse_mode"] = "MarkdownV2"
+})
+-- bot:Queue(function(bot)
+--     bot:ForEachChat(function(chatId)
+--         bot:Request("sendChatAction", {
+--             ["chat_id"] = chatId,
+--             ["action"] = "Thinking..."
+--         })
+--     end)
+-- end)
 
 timer.Create("Test", 0.1, 0, function()
     bot:Think()

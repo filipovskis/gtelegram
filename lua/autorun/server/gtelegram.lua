@@ -74,6 +74,109 @@ local function accessor(meta, key, name, type)
     end
 end
 
+-- SECTION Class "KeyboardButton"
+
+local BUTTON = {}
+BUTTON.__index = BUTTON
+
+accessor(BUTTON, "text")
+accessor(BUTTON, "url")
+accessor(BUTTON, "callback")
+accessor(BUTTON, "callbackData")
+accessor(BUTTON, "keyboard")
+
+function BUTTON:SetRow(index)
+    local keyboard = self.keyboard
+    local row = keyboard.rows[index]
+
+    assert(index > 0, "Row index must be greater than 0")
+    assert(row, "There's no row with index " .. index .. ", use keyboard:AddRow()")
+
+    self.row = index
+    self.pos = #row + 1
+
+    row[self.pos] = self
+end
+
+function BUTTON:GetTGData()
+    local cbData = {}
+    cbData.buttonId = self.text
+
+    if self.callbackData then
+        table.Merge(cbData, self.callbackData)
+    end
+
+    return {
+        ["text"] = self.text,
+        ["url"] = self.url,
+        ["callback_data"] = util.TableToJSON(cbData)
+    }
+end
+
+-- !SECTION
+
+-- SECTION Class "InlineKeyboard"
+
+local KEYBOARD = {}
+KEYBOARD.__index = KEYBOARD
+
+function KEYBOARD:Init()
+    self.rows = {[1] = {}}
+    self.buttons = {}
+end
+
+function KEYBOARD:AddRow()
+    return table.insert(self.rows, {})
+end
+
+function KEYBOARD:CreateButton()
+    local button = setmetatable({
+        keyboard = self
+    }, BUTTON)
+
+    table.insert(self.buttons, button)
+
+    return button
+end
+
+function KEYBOARD:AddButton(text, data, rowIndex)
+    rowIndex = rowIndex or 1
+
+    if not self.rows[rowIndex] then
+        for i = 1, rowIndex do
+            if not self.rows[i] then
+                self.rows[i] = {}
+            end
+        end
+    end
+
+    local button = self:CreateButton()
+    button:SetText(text)
+    button:SetUrl(data.url)
+    button:SetCallbackData(data.callbackData)
+    button:SetRow(rowIndex)
+end
+
+function KEYBOARD:GetButtons()
+    return self.buttons
+end
+
+function KEYBOARD:GetTGData()
+    local data = {}
+
+    for index, buttons in ipairs(self.rows) do
+        data[index] = {}
+
+        for _, button in ipairs(buttons) do
+            table.insert(data[index], button:GetTGData())
+        end
+    end
+
+    return {["inline_keyboard"] = data}
+end
+
+-- !SECTION
+
 -- SECTION Class "Message"
 
 local MESSAGE = {}
@@ -82,6 +185,8 @@ MESSAGE.__index = MESSAGE
 accessor(MESSAGE, "bot")
 accessor(MESSAGE, "text")
 accessor(MESSAGE, "parseMode")
+accessor(MESSAGE, "silent")
+accessor(MESSAGE, "keyboard")
 
 function MESSAGE:AddAllChats()
     self.chats = table.Copy(self.bot.chats)
@@ -105,19 +210,56 @@ function MESSAGE:GetChats()
     return self.chats
 end
 
+function MESSAGE:CreateKeyboard()
+    local keyboard = setmetatable({
+        message = self
+    }, KEYBOARD)
+
+    keyboard:Init()
+
+    self.keyboard = keyboard
+
+    return keyboard
+end
+
 function MESSAGE:GetTGData()
+    local keyboard = self.keyboard
+
     local data = {}
     data["text"] = self.text
     data["parse_mode"] = self.parseMode
+    data["disable_notification"] = self.silent
+
+    if keyboard then
+        data["reply_markup"] = util.TableToJSON(keyboard:GetTGData())
+    end
 
     return data
 end
 
 function MESSAGE:Send()
     local bot = self.bot
+    local keyboard = self.keyboard
 
-    assert(self.bot)
+    assert(bot)
     assert(self.text)
+
+    if keyboard then
+        for _, button in ipairs(keyboard:GetButtons()) do
+            local buttonId = button.text
+            local callback = button.callback
+
+            if callback then
+                bot:AddHook("OnCallback", buttonId, function(bot, cbData)
+                    local data = util.JSONToTable(cbData.data)
+
+                    if data and (data.buttonId == buttonId) then
+                        callback(cbData.from, data)
+                    end
+                end)
+            end
+        end
+    end
 
     bot:Queue(function(bot, message)
         local msgData = message:GetTGData()
@@ -125,7 +267,9 @@ function MESSAGE:Send()
         for _, chatId in ipairs(message:GetChats()) do
             msgData["chat_id"] = chatId
 
-            bot:Request("sendMessage", msgData)
+            bot:Request("sendMessage", msgData, function(bot, data)
+                message.id = data["message_id"]
+            end)
         end
     end, self)
 end
@@ -226,24 +370,14 @@ function BOT:Poll()
 
             local updateId = result["update_id"]
             local message = result["message"]
+            local callback = result["callback_query"]
 
-            local entities = message.entities
-            local chatId = tostring(message.chat.id)
-
-            if not bot:IsChatExists(chatId) then
-                bot:AddChat(chatId)
+            if message then
+                self:CallHook("OnMessage", nil, message)
             end
 
-            if entities and entities[1].type == "bot_command" then
-                local commandParts = splitByQuotes(message.text)
-                local commandId = string.sub(commandParts[1], 2)
-                local commandFunc = self.commands[commandId]
-
-                table.remove(commandParts, 1)
-
-                if commandFunc then
-                    commandFunc(bot, message.from, unpack(commandParts))
-                end
+            if callback then
+                self:CallHook("OnCallback", nil, callback)
             end
 
             bot.lastUpdate = updateId + 1
@@ -337,11 +471,29 @@ end
 
 function BOT:CreateMessage()
     local object = setmetatable({
-        chats = {}
+        chats = {},
+        buttons = {}
     }, MESSAGE)
     object:SetBot(self)
 
     return object
+end
+
+function BOT:SyncCommands()
+    self:Queue(function(bot)
+        local commands = {}
+
+        for cmd in pairs(self.commands) do
+            table.insert(commands, {
+                command = cmd,
+                description = "Test"
+            })
+        end
+
+        self:Request("setMyCommands", {
+            ["commands"] = util.TableToJSON(commands)
+        })
+    end)
 end
 
 function BOT:SendMessage(text, _data)
@@ -366,6 +518,33 @@ function BOT:AddCommand(id, callback)
 end
 
 -- Override
+
+function BOT:OnMessage(message)
+    local entities = message.entities
+    local chatId = tostring(message.chat.id)
+
+    if not self:IsChatExists(chatId) then
+        self:AddChat(chatId)
+    end
+
+    if entities and entities[1].type == "bot_command" then
+        local commandParts = splitByQuotes(message.text)
+        local commandId = string.sub(commandParts[1], 2)
+        local commandFunc = self.commands[commandId]
+
+        table.remove(commandParts, 1)
+
+        if commandFunc then
+            commandFunc(self, message.from, unpack(commandParts))
+        end
+    end
+end
+
+function BOT:OnCallback(cbData)
+    self:Request("answerCallbackQuery", {
+        ["callback_query_id"] = cbData.id
+    })
+end
 
 function BOT:OnSave()
     
@@ -414,18 +593,100 @@ local bot = GTelegram("1988948436", "AAEWrMo-lo_wbvKhWsfI06Dx2Vyn8o8AuiQ")
 bot:SetPollRate(5)
 -- bot:SendMessage("Hello")
 -- bot:SendMessage("Hello2")
--- bot:AddCommand("hello", function(self, message)
---     self:SendMessage("Hello :)")
--- end)
--- bot:AddCommand("type", function(self, message, text)
---     self:SendMessage(text)
+bot:AddCommand("hello", function(self, message)
+    self:SendMessage("Hello :)")
+end)
+bot:AddCommand("type", function(self, message, text)
+    self:SendMessage(text)
+end)
+bot:SyncCommands()
+
+local msg = bot:CreateMessage()
+:SetText("Who would you like to *kick*?")
+:SetParseMode("MarkdownV2")
+:SetSilent(true)
+:AddAllChats()
+
+-- local keyboard = msg:CreateKeyboard()
+-- keyboard:AddRow()
+-- -- PrintTable(keyboard)
+
+-- local button = keyboard:CreateButton()
+-- button:SetText("Hello")
+-- button:SetUrl("https://core.telegram.org/bots/api#sendmessage")
+-- button:SetRow(1)
+
+-- local button2 = keyboard:CreateButton()
+-- button2:SetText("Hello")
+-- button2:SetUrl("https://core.telegram.org/bots/api#sendmessage")
+-- button2:SetRow(2)
+
+-- local keyboard = msg:CreateKeyboard()
+-- keyboard:AddButton("GitHub", {url = "https://github.com/"})
+-- -- keyboard:AddButton("Google", {callbackData = {
+-- --     amongus = "Hello"
+-- -- }})
+-- -- keyboard:AddButton("Ban", {callbackData = {
+-- --     amongus = "Hello"
+-- -- }})
+-- local button = keyboard:CreateButton()
+-- button:SetText("Ban")
+-- button:SetRow(1)
+-- button:SetCallbackData({
+--     steamid = "STEAM_0:1:62967572"
+-- })
+-- button:SetCallback(function(activator, data)
+--     print("Ban")
+--     PrintTable(activator)
 -- end)
 
-bot:CreateMessage()
-:SetText("*Hello everyone*")
-:SetParseMode("MarkdownV2")
-:AddAllChats()
-:Send()
+-- local button = keyboard:CreateButton()
+-- button:SetText("Kick")
+-- button:SetRow(1)
+-- button:SetCallbackData({
+--     steamid = "STEAM_0:1:62967572"
+-- })
+-- button:SetCallback(function(activator, data)
+--     print("Kick")
+--     PrintTable(data)
+-- end)
+
+local keyboard = msg:CreateKeyboard()
+
+local button = keyboard:CreateButton()
+button:SetText("Boom")
+button:SetRow(1)
+button:SetCallbackData({
+    steamid = "STEAM_0:1:62967572"
+})
+button:SetCallback(function(activator, data)
+end)
+
+-- local rowIndex = 1
+-- for index, ply in ipairs(player.GetAll()) do
+--     if (index % 3) == 0 then
+--         rowIndex = rowIndex + 1
+
+--         if not keyboard.rows[rowIndex] then
+--             keyboard:AddRow()
+--         end
+--     end
+
+--     local btn = keyboard:CreateButton()
+--     btn:SetRow(rowIndex)
+--     btn:SetText(ply:Name())
+--     btn:SetCallbackData({
+--         userId = ply:UserID()
+--     })
+--     btn:SetCallback(function(activator, data)
+--         local userId = data.userId
+
+--         game.KickID(userId, "TGBot")
+--     end)
+-- end
+
+msg:Send()
+
 -- bot:AddCommand("giveadmin", function(self, message)
 --     print("HUH???")
 -- end)

@@ -162,8 +162,21 @@ function BUTTON:SetRow(index)
     local keyboard = self.keyboard
     local row = keyboard.rows[index]
 
+    if self.row == index then
+        return self
+    end
+
     assert(index > 0, "Row index must be greater than 0")
     assert(row, "There's no row with index " .. index .. ", use keyboard:AddRow()")
+
+    for _, row2 in ipairs(keyboard.rows) do
+        for index2, button in ipairs(row2) do
+            if button == self then
+                table.remove(row2, index2)
+                break
+            end
+        end
+    end
 
     self.row = index
     self.pos = #row + 1

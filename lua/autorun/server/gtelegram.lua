@@ -11,6 +11,49 @@ if not file.Exists("gtelegram", "DATA") then
     file.CreateDir("gtelegram")
 end
 
+local function splitByQuotes(str)
+    local args = {}
+    local parts = {}
+    local startFrom = 0
+
+    while true do
+        local quoteStart, quoteEnd= string.find(str, "[%w%p]+", startFrom)
+
+        if quoteStart == nil then
+            break
+        end
+
+        startFrom = quoteEnd + 1
+
+        table.insert(parts, string.sub(str, quoteStart, quoteEnd))
+    end
+
+    local opened = false
+    local arg = ""
+
+    for _, part in ipairs(parts) do
+        local left = part:Left(1) == "\""
+        local right = part:Right(1) == "\""
+
+        if left and right then
+            table.insert(args, string.sub(part, 2, -2))
+        elseif left then
+            opened = true
+            arg = string.sub(part, 2)
+        elseif opened and right then
+            arg = arg .. " " .. string.sub(part, 1, -2)
+            table.insert(args, arg)
+            opened = false
+        elseif opened then
+            arg = arg .. " " .. part
+        else
+            table.insert(args, part)
+        end
+    end
+
+    return args
+end
+
 -- SECTION Class "Bot"
 
 local BOT = {}
@@ -106,10 +149,23 @@ function BOT:Poll()
             local updateId = result["update_id"]
             local message = result["message"]
 
+            local entities = message.entities
             local chatId = tostring(message.chat.id)
 
             if not bot:IsChatExists(chatId) then
                 bot:AddChat(chatId)
+            end
+
+            if entities and entities[1].type == "bot_command" then
+                local commandParts = splitByQuotes(message.text)
+                local commandId = string.sub(commandParts[1], 2)
+                local commandFunc = self.commands[commandId]
+
+                table.remove(commandParts, 1)
+
+                if commandFunc then
+                    commandFunc(bot, message.from, unpack(commandParts))
+                end
             end
 
             bot.lastUpdate = updateId + 1
@@ -222,7 +278,6 @@ function BOT:AddCommand(id, callback)
     self.commands[id] = callback
 end
 
-
 -- Override
 
 function BOT:OnSave()
@@ -269,9 +324,22 @@ end
 -- ANCHOR Test
 
 local bot = GTelegram("1988948436", "AAEWrMo-lo_wbvKhWsfI06Dx2Vyn8o8AuiQ")
-bot:SetPollRate(5)
-bot:SendMessage("Hello")
-bot:SendMessage("Hello2")
+bot:SetPollRate(1)
+-- bot:SendMessage("Hello")
+-- bot:SendMessage("Hello2")
+bot:AddCommand("hello", function(self, message)
+    self:SendMessage("Hello :)")
+end)
+bot:AddCommand("type", function(self, message, text)
+    self:SendMessage(text)
+end)
+-- bot:AddCommand("giveadmin", function(self, message)
+--     print("HUH???")
+-- end)
+-- bot:AddHook("OnUpdate", "Print", function(self, update)
+--     print("Update received")
+--     PrintTable(update)
+-- end)
 -- bot:AddHook("OnRequest", "Test", function(self, method, data)
 --     print(method, data)
 -- end)

@@ -207,6 +207,8 @@ function KEYBOARD:CreateButton()
         keyboard = self
     }, BUTTON)
 
+    button:SetRow(1)
+
     table.insert(self.buttons, button)
 
     return button

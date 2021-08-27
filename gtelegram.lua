@@ -169,6 +169,8 @@ function BUTTON:SetRow(index)
     self.pos = #row + 1
 
     row[self.pos] = self
+
+    return self
 end
 
 function BUTTON:GetTGData()

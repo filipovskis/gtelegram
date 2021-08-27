@@ -474,7 +474,7 @@ do
     local emojiReference = {
         ["basketball"] = "🏀",
         ["darts"] = "🎯",
-        ["footbal"] = "⚽",
+        ["football"] = "⚽",
         ["bowling"] = "🎳",
         ["casino"] = "🎰",
         ["dice"] = "🎲"

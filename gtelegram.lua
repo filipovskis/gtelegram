@@ -110,7 +110,15 @@ local function createContentClass(method, parameters)
 
     function mt:ExpandTGData(data)
         for key, parameter in pairs(parameters) do
-            data[(parameter.telegram or key)] = self[key]
+            local value
+
+            if parameter.json then
+                value = util.TableToJSON(self[key])
+            else
+                value = self[key]
+            end
+
+            data[(parameter.telegram or key)] = value
         end
     end
 
@@ -132,6 +140,7 @@ local function addObjectCreation(mt, name, objMt, baseMt)
             buttons = {}
         }, objMt, baseMt)
 
+        object:Init()
         object:SetBot(self)
 
         return object
@@ -304,6 +313,10 @@ accessor(CONTENT, "bot")
 accessor(CONTENT, "silent")
 accessor(CONTENT, "keyboard")
 
+function CONTENT:Init()
+    
+end
+
 function CONTENT:Everyone()
     self.chats = table.Copy(self.bot.chats)
     return self
@@ -414,11 +427,11 @@ function CONTENT:Send()
     end, self)
 end
 
-function CONTENT:Validate()
+function CONTENT:Validate(data)
     
 end
 
-function CONTENT:ExpandTGData()
+function CONTENT:ExpandTGData(data)
     
 end
 
@@ -429,8 +442,8 @@ end
 local MESSAGE = createContentClass("sendmessage", {
     ["text"] = {},
     ["parseMode"] = {
-        telegram = "parse_mode",
-        optional = true
+        optional = true,
+        telegram = "parse_mode"
     }
 })
 
@@ -439,6 +452,63 @@ local DICE = createContentClass("sendDice", {
         optional = true
     }
 })
+
+do
+    local emojiReference = {
+        ["basketball"] = "🏀",
+        ["darts"] = "🎯",
+        ["footbal"] = "⚽",
+        ["bowling"] = "🎳",
+        ["casino"] = "🎰",
+        ["dice"] = "🎲"
+    }
+
+    function DICE:ChangeEmoji(name)
+        local found = emojiReference[name]
+
+        assert(found, "Incorrect emoji name!")
+
+        self.emoji = found
+
+        return self
+    end
+end
+
+local VOTE = createContentClass("sendPoll", {
+    ["question"] = {},
+    ["options"] = {
+        json = true
+    },
+    ["anonymous"] = {
+        optional = true,
+        telegram = "is_anonymous"
+    },
+    ["multipleAnswers"] = {
+        optional = true,
+        telegram = "allows_multiple_answers"
+    },
+    ["closed"] = {
+        optional = true,
+        telegram = "is_closed"
+    },
+    ["lifeTime"] = {
+        optional = true,
+        telegram = "open_period"
+    },
+    ["closeDate"] = {
+        optional = true,
+        telegram = "close_date"
+    }
+})
+
+function VOTE:Init()
+    self.options = {}
+end
+
+function VOTE:AddOption(option)
+    table.insert(self.options, option)
+    return self
+end
 
 -- !SECTION
 
@@ -637,6 +707,7 @@ end
 
 addObjectCreation(BOT, "CreateMessage", MESSAGE, CONTENT)
 addObjectCreation(BOT, "CreateDice", DICE, CONTENT)
+addObjectCreation(BOT, "CreateVote", VOTE, CONTENT)
 
 function BOT:SyncCommands()
     self:Queue(function(bot)

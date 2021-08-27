@@ -115,7 +115,7 @@ end
 
 -- !SECTION
 
--- SECTION Class "InlineKeyboard"
+-- SECTION Class "Keyboard"
 
 local KEYBOARD = {}
 KEYBOARD.__index = KEYBOARD
@@ -139,29 +139,18 @@ function KEYBOARD:CreateButton()
     return button
 end
 
-function KEYBOARD:AddButton(text, data, rowIndex)
-    rowIndex = rowIndex or 1
-
-    if not self.rows[rowIndex] then
-        for i = 1, rowIndex do
-            if not self.rows[i] then
-                self.rows[i] = {}
-            end
-        end
-    end
-
-    local button = self:CreateButton()
-    button:SetText(text)
-    button:SetUrl(data.url)
-    button:SetCallbackData(data.callbackData)
-    button:SetRow(rowIndex)
-end
-
 function KEYBOARD:GetButtons()
     return self.buttons
 end
 
-function KEYBOARD:GetTGData()
+-- !SECTION
+
+-- SECTION Class "InlineKeyboard"
+
+local IKEYBOARD = {}
+IKEYBOARD.__index = IKEYBOARD
+
+function IKEYBOARD:GetTGData()
     local data = {}
 
     for index, buttons in ipairs(self.rows) do
@@ -173,6 +162,36 @@ function KEYBOARD:GetTGData()
     end
 
     return {["inline_keyboard"] = data}
+end
+
+-- !SECTION
+
+-- SECTION Class "ReplyKeyboard"
+
+local RKEYBOARD = {}
+RKEYBOARD.__index = RKEYBOARD
+
+accessor(RKEYBOARD, "oneTime")
+accessor(RKEYBOARD, "placeholder")
+accessor(RKEYBOARD, "resize")
+
+function RKEYBOARD:GetTGData()
+    local keyboard = {}
+
+    for index, buttons in ipairs(self.rows) do
+        keyboard[index] = {}
+
+        for _, button in ipairs(buttons) do
+            table.insert(keyboard[index], button:GetTGData())
+        end
+    end
+
+    return {
+        ["keyboard"] = keyboard,
+        ["one_time_keyboard"] = self.oneTime,
+        ["input_field_placeholder"] = self.placeholder,
+        ["resize_keyboard"] = self.resize
+    }
 end
 
 -- !SECTION
@@ -210,16 +229,44 @@ function MESSAGE:GetChats()
     return self.chats
 end
 
-function MESSAGE:CreateKeyboard()
+function MESSAGE:CreateInlineKeyboard()
     local keyboard = setmetatable({
         message = self
-    }, KEYBOARD)
+    }, {
+        __index = function(tbl, key)
+            return KEYBOARD[key] or IKEYBOARD[key]
+        end
+    })
 
     keyboard:Init()
 
     self.keyboard = keyboard
 
     return keyboard
+end
+
+function MESSAGE:CreateReplyKeyboard()
+    local keyboard = setmetatable({
+        message = self
+    }, {
+        __index = function(tbl, key)
+            return KEYBOARD[key] or RKEYBOARD[key]
+        end
+    })
+
+    keyboard:Init()
+
+    self.keyboard = keyboard
+
+    return keyboard
+end
+
+function MESSAGE:CloseReplyKeyboard()
+    self.keyboard = {
+        GetTGData = function()
+            return {["remove_keyboard"] = true}
+        end
+    }
 end
 
 function MESSAGE:GetTGData()
@@ -242,9 +289,11 @@ function MESSAGE:Send()
     local keyboard = self.keyboard
 
     assert(bot)
-    assert(self.text)
+    assert(self.text, "Empty message can't be sent, set text!")
+    assert(self.text, "You must set text")
+    assert(#self.chats > 0, "Message can't be sent to nobody, add chats!")
 
-    if keyboard then
+    if keyboard and keyboard.GetButtons then
         for _, button in ipairs(keyboard:GetButtons()) do
             local buttonId = button.text
             local callback = button.callback
@@ -651,15 +700,43 @@ local msg = bot:CreateMessage()
 --     PrintTable(data)
 -- end)
 
-local keyboard = msg:CreateKeyboard()
+-- local keyboard = msg:CreateInlineKeyboard()
+
+-- local button = keyboard:CreateButton()
+-- button:SetText("Boom")
+-- button:SetRow(1)
+-- button:SetCallbackData({
+--     steamid = "STEAM_0:1:62967572"
+-- })
+-- button:SetCallback(function(activator, data)
+--     print("activated!!!")
+-- end)
+
+local keyboard = msg:CreateReplyKeyboard()
+keyboard:SetOneTime(true)
+keyboard:SetPlaceholder("Hello there")
+keyboard:SetResize(true)
 
 local button = keyboard:CreateButton()
-button:SetText("Boom")
+button:SetText("Ban")
 button:SetRow(1)
 button:SetCallbackData({
     steamid = "STEAM_0:1:62967572"
 })
 button:SetCallback(function(activator, data)
+    print("activated!!!")
+    bot:RemoveReplyKeyboard()
+end)
+
+local button = keyboard:CreateButton()
+button:SetText("Kick")
+button:SetRow(1)
+button:SetCallbackData({
+    steamid = "STEAM_0:1:62967572"
+})
+button:SetCallback(function(activator, data)
+    print("activated!!!")
+    bot:RemoveReplyKeyboard()
 end)
 
 -- local rowIndex = 1
@@ -686,6 +763,12 @@ end)
 -- end
 
 msg:Send()
+
+local msg2 = bot:CreateMessage()
+msg2:SetText("Close")
+msg2:CloseReplyKeyboard()
+msg2:AddAllChats()
+msg2:Send()
 
 -- bot:AddCommand("giveadmin", function(self, message)
 --     print("HUH???")

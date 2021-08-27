@@ -284,6 +284,8 @@ function MESSAGE:CloseReplyKeyboard()
             return {["remove_keyboard"] = true}
         end
     }
+
+    return self
 end
 
 function MESSAGE:GetTGData()

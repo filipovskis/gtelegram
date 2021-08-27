@@ -91,6 +91,53 @@ local function accessor(meta, key, name, type)
     end
 end
 
+local function mix(data, mt, baseMt)
+    return setmetatable(data, {
+        __index = function(tbl, key)
+            return mt[key] or baseMt[key]
+        end
+    })
+end
+
+local function createContentClass(method, parameters)
+    local mt = {}
+    mt.__index = mt
+    mt.method = method
+
+    for key in pairs(parameters) do
+        accessor(mt, key)
+    end
+
+    function mt:ExpandTGData(data)
+        for key, parameter in pairs(parameters) do
+            data[(parameter.telegram or key)] = self[key]
+        end
+    end
+
+    function mt:Validate()
+        for key, parameter in pairs(parameters) do
+            if not parameter.optional then
+                assert(self[key], "\"" .. key .. "\" is required!")
+            end
+        end
+    end
+
+    return mt
+end
+
+local function addObjectCreation(mt, name, objMt, baseMt)
+    mt[name] = function(self)
+        local object = mix({
+            chats = {},
+            buttons = {}
+        }, objMt, baseMt)
+
+        object:SetBot(self)
+
+        return object
+    end
+end
+
 -- SECTION Class "KeyboardButton"
 
 local BUTTON = {}
@@ -178,7 +225,9 @@ function IKEYBOARD:GetTGData()
         end
     end
 
-    return {["inline_keyboard"] = data}
+    return {
+        ["inline_keyboard"] = data
+    }
 end
 
 -- !SECTION
@@ -246,28 +295,26 @@ end
 
 -- !SECTION
 
--- SECTION Class "Message"
+-- SECTION Class "Content"
 
-local MESSAGE = {}
-MESSAGE.__index = MESSAGE
+local CONTENT = {}
+CONTENT.__index = CONTENT
 
-accessor(MESSAGE, "bot")
-accessor(MESSAGE, "text")
-accessor(MESSAGE, "parseMode")
-accessor(MESSAGE, "silent")
-accessor(MESSAGE, "keyboard")
+accessor(CONTENT, "bot")
+accessor(CONTENT, "silent")
+accessor(CONTENT, "keyboard")
 
-function MESSAGE:AddAllChats()
+function CONTENT:Everyone()
     self.chats = table.Copy(self.bot.chats)
     return self
 end
 
-function MESSAGE:AddChatId(chatId)
+function CONTENT:AddChat(chatId)
     table.insert(self.chats, chatId)
     return self
 end
 
-function MESSAGE:RemoveChatId(chatId)
+function CONTENT:RemoveChat(chatId)
     for k, v in ipairs(self.chats) do
         if v == chatId then
             return table.remove(self.chats, k)
@@ -275,18 +322,14 @@ function MESSAGE:RemoveChatId(chatId)
     end
 end
 
-function MESSAGE:GetChats()
+function CONTENT:GetChats()
     return self.chats
 end
 
-function MESSAGE:CreateInlineKeyboard()
-    local keyboard = setmetatable({
+function CONTENT:CreateKeyboard(meta)
+    local keyboard = mix({
         message = self
-    }, {
-        __index = function(tbl, key)
-            return KEYBOARD[key] or IKEYBOARD[key]
-        end
-    })
+    }, meta, KEYBOARD)
 
     keyboard:Init()
 
@@ -295,23 +338,15 @@ function MESSAGE:CreateInlineKeyboard()
     return keyboard
 end
 
-function MESSAGE:CreateReplyKeyboard()
-    local keyboard = setmetatable({
-        message = self
-    }, {
-        __index = function(tbl, key)
-            return KEYBOARD[key] or RKEYBOARD[key]
-        end
-    })
-
-    keyboard:Init()
-
-    self.keyboard = keyboard
-
-    return keyboard
+function CONTENT:CreateInlineKeyboard()
+    return self:CreateKeyboard(IKEYBOARD)
 end
 
-function MESSAGE:CloseReplyKeyboard()
+function CONTENT:CreateReplyKeyboard()
+    return self:CreateKeyboard(RKEYBOARD)
+end
+
+function CONTENT:CloseReplyKeyboard()
     self.keyboard = {
         GetTGData = function()
             return {["remove_keyboard"] = true}
@@ -321,11 +356,10 @@ function MESSAGE:CloseReplyKeyboard()
     return self
 end
 
-function MESSAGE:GetTGData()
+function CONTENT:GetTGData()
     local keyboard = self.keyboard
 
     local data = {}
-    data["text"] = self.text
     data["parse_mode"] = self.parseMode
     data["disable_notification"] = self.silent
 
@@ -333,17 +367,14 @@ function MESSAGE:GetTGData()
         data["reply_markup"] = util.TableToJSON(keyboard:GetTGData())
     end
 
+    self:ExpandTGData(data)
+
     return data
 end
 
-function MESSAGE:Send()
+function CONTENT:PrepareCallbacks()
     local bot = self.bot
     local keyboard = self.keyboard
-
-    assert(bot)
-    assert(self.text, "Empty message can't be sent, set text!")
-    assert(self.text, "You must set text")
-    assert(#self.chats > 0, "Message can't be sent to nobody, add chats!")
 
     if keyboard and keyboard.GetButtons then
         for _, button in ipairs(keyboard:GetButtons()) do
@@ -361,19 +392,53 @@ function MESSAGE:Send()
             end
         end
     end
+end
+
+function CONTENT:Send()
+    local bot = self.bot
+
+    assert(bot)
+    assert(#self.chats > 0, "Message can't be sent to nobody, add chats!")
+
+    self:Validate()
+    self:PrepareCallbacks()
 
     bot:Queue(function(bot, message)
         local msgData = message:GetTGData()
 
         for _, chatId in ipairs(message:GetChats()) do
-            msgData["chat_id"] = chatId
+            msgData["chat_id"] = tostring(chatId)
 
-            bot:Request("sendMessage", msgData, function(bot, data)
-                message.id = data["message_id"]
-            end)
+            bot:Request(self.method, msgData)
         end
     end, self)
 end
+
+function CONTENT:Validate()
+    
+end
+
+function CONTENT:ExpandTGData()
+    
+end
+
+-- !SECTION
+
+-- SECTION Content Subclasses
+
+local MESSAGE = createContentClass("sendmessage", {
+    ["text"] = {},
+    ["parseMode"] = {
+        telegram = "parse_mode",
+        optional = true
+    }
+})
+
+local DICE = createContentClass("sendDice", {
+    ["emoji"] = {
+        optional = true
+    }
+})
 
 -- !SECTION
 
@@ -570,15 +635,8 @@ end
 
 -- Additional
 
-function BOT:CreateMessage()
-    local object = setmetatable({
-        chats = {},
-        buttons = {}
-    }, MESSAGE)
-    object:SetBot(self)
-
-    return object
-end
+addObjectCreation(BOT, "CreateMessage", MESSAGE, CONTENT)
+addObjectCreation(BOT, "CreateDice", DICE, CONTENT)
 
 function BOT:SyncCommands()
     self:Queue(function(bot)

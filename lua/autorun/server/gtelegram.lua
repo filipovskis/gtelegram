@@ -54,12 +54,90 @@ local function splitByQuotes(str)
     return args
 end
 
+local function accessor(meta, key, name, type)
+    name = name or (string.upper(string.Left(key, 1)) .. string.sub(key, 2))
+
+    local function getter(panel)
+        return panel[key]
+    end
+
+    meta["Get" .. name] = getter
+
+    if type == FORCE_BOOL then
+        meta["Is" .. name] = getter
+    end
+
+    meta["Set" .. name] = function(panel, value)
+        panel[key] = value
+
+        return panel
+    end
+end
+
+-- SECTION Class "Message"
+
+local MESSAGE = {}
+MESSAGE.__index = MESSAGE
+
+accessor(MESSAGE, "bot")
+accessor(MESSAGE, "text")
+accessor(MESSAGE, "parseMode")
+
+function MESSAGE:AddAllChats()
+    self.chats = table.Copy(self.bot.chats)
+    return self
+end
+
+function MESSAGE:AddChatId(chatId)
+    table.insert(self.chats, chatId)
+    return self
+end
+
+function MESSAGE:RemoveChatId(chatId)
+    for k, v in ipairs(self.chats) do
+        if v == chatId then
+            return table.remove(self.chats, k)
+        end
+    end
+end
+
+function MESSAGE:GetChats()
+    return self.chats
+end
+
+function MESSAGE:GetTGData()
+    local data = {}
+    data["text"] = self.text
+    data["parse_mode"] = self.parseMode
+
+    return data
+end
+
+function MESSAGE:Send()
+    local bot = self.bot
+
+    assert(self.bot)
+    assert(self.text)
+
+    bot:Queue(function(bot, message)
+        local msgData = message:GetTGData()
+
+        for _, chatId in ipairs(message:GetChats()) do
+            msgData["chat_id"] = chatId
+
+            bot:Request("sendMessage", msgData)
+        end
+    end, self)
+end
+
+-- !SECTION
+
 -- SECTION Class "Bot"
 
 local BOT = {}
 BOT.__index = BOT
 
-AccessorFunc(BOT, "pollRate", "PollRate")
+accessor(BOT, "pollRate")
 
 -- Basic
 
@@ -257,6 +335,15 @@ end
 
 -- Additional
 
+function BOT:CreateMessage()
+    local object = setmetatable({
+        chats = {}
+    }, MESSAGE)
+    object:SetBot(self)
+
+    return object
+end
+
 function BOT:SendMessage(text, _data)
     _data = _data or {}
     _data.text = text
@@ -324,15 +411,21 @@ end
 -- ANCHOR Test
 
 local bot = GTelegram("1988948436", "AAEWrMo-lo_wbvKhWsfI06Dx2Vyn8o8AuiQ")
-bot:SetPollRate(1)
+bot:SetPollRate(5)
 -- bot:SendMessage("Hello")
 -- bot:SendMessage("Hello2")
-bot:AddCommand("hello", function(self, message)
-    self:SendMessage("Hello :)")
-end)
-bot:AddCommand("type", function(self, message, text)
-    self:SendMessage(text)
-end)
+-- bot:AddCommand("hello", function(self, message)
+--     self:SendMessage("Hello :)")
+-- end)
+-- bot:AddCommand("type", function(self, message, text)
+--     self:SendMessage(text)
+-- end)
+
+bot:CreateMessage()
+:SetText("*Hello everyone*")
+:SetParseMode("MarkdownV2")
+:AddAllChats()
+:Send()
 -- bot:AddCommand("giveadmin", function(self, message)
 --     print("HUH???")
 -- end)

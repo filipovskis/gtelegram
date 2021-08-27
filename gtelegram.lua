@@ -213,6 +213,39 @@ end
 
 -- !SECTION
 
+-- SECTION Class "Command"
+
+local COMMAND = {}
+COMMAND.__index = COMMAND
+
+accessor(COMMAND, "bot")
+accessor(COMMAND, "name")
+accessor(COMMAND, "description")
+accessor(COMMAND, "callback")
+accessor(COMMAND, "aliases")
+
+function COMMAND:Init()
+    self.aliases = {}
+end
+
+function COMMAND:AddAlias(name)
+    table.insert(self.aliases, name)
+    return self
+end
+
+function COMMAND:Validate()
+    assert(self.name, "You must provide a name!")
+    assert(self.callback, "You must provide a callback!")
+
+    self.validated = true
+end
+
+function COMMAND:IsValidated()
+    return self.validated
+end
+
+-- !SECTION
+
 -- SECTION Class "Message"
 
 local MESSAGE = {}
@@ -551,11 +584,27 @@ function BOT:SyncCommands()
     self:Queue(function(bot)
         local commands = {}
 
-        for cmd in pairs(self.commands) do
+        for _, command in pairs(self.commands) do
+            if not command:IsValidated() then
+                goto skip
+            end
+
+            local description = command:GetDescription() or "Unknown"
+            local aliasDesc = "Alias of \"/" .. command:GetName() .. "\""
+
             table.insert(commands, {
-                command = cmd,
-                description = "Test"
+                command = command:GetName(),
+                description = description
             })
+
+            for _, alias in ipairs(command:GetAliases()) do
+                table.insert(commands, {
+                    command = alias,
+                    description = aliasDesc
+                })
+            end
+
+            ::skip::
         end
 
         self:Request("setMyCommands", {
@@ -581,8 +630,35 @@ function BOT:SendMessage(text, _data)
     end, _data)
 end
 
-function BOT:AddCommand(id, callback)
-    self.commands[id] = callback
+function BOT:CreateCommand()
+    local command = setmetatable({
+        bot = self
+    }, COMMAND)
+    command:Init()
+
+    table.insert(self.commands, command)
+
+    return command
+end
+
+function BOT:FindCommand(name)
+    for _, command in ipairs(self.commands) do
+        if not command:IsValidated() then
+            goto skip
+        end
+
+        if command:GetName() == name then
+            return command
+        end
+
+        for _, alias in ipairs(command:GetAliases()) do
+            if alias == name then
+                return command
+            end
+        end
+
+        ::skip::
+    end
 end
 
 -- Override
@@ -596,14 +672,18 @@ function BOT:OnMessage(message)
     end
 
     if entities and entities[1].type == "bot_command" then
-        local commandParts = splitByQuotes(message.text)
-        local commandId = string.sub(commandParts[1], 2)
-        local commandFunc = self.commands[commandId]
+        local cmdParts = splitByQuotes(message.text)
+        local cmdName = string.sub(cmdParts[1], 2)
+        local cmdObject = self:FindCommand(cmdName)
 
-        table.remove(commandParts, 1)
+        table.remove(cmdParts, 1)
 
-        if commandFunc then
-            commandFunc(self, message.from, unpack(commandParts))
+        if cmdObject then
+            local callback = cmdObject:GetCallback()
+
+            assert(callback, "No callback for command \"" .. cmdName .. "\"")
+
+            callback(self, message.from, unpack(cmdParts))
         end
     end
 end

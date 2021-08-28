@@ -13,7 +13,41 @@ Email: tochonement@gmail.com
 local bot = GTelegram("1988948436", "AAEWrMo-lo_wbvKhWsfI06Dx2Vyn8o8AuiQ")
 bot:SetPollRate(1)
 
--- ReplyKeyboard
+-- InlineKeyboard
+do
+    local cbData = {steamId = "STEAM_0:1:62967572"}
+    local message = bot:CreateMessage()
+        message:SetText("Alex said a swear word")
+        message:Everyone()
+
+        local keyboard = message:CreateReplyKeyboard()
+        keyboard:AddRow()
+
+        keyboard:CreateButton()
+        :SetText("Kick")
+        :SetCallbackData(cbData)
+        :SetCallback(function(from, data)
+            RunConsoleCommand("sam", "kick", data.steamId)
+        end)
+
+        keyboard:CreateButton()
+        :SetText("Ban")
+        :SetCallbackData(cbData)
+        :SetCallback(function(from, data)
+            RunConsoleCommand("sam", "ban", data.steamId)
+        end)
+
+        keyboard:CreateButton()
+        :SetText("Slap")
+        :SetCallbackData(cbData)
+        :SetRow(2)
+        :SetCallback(function(from, data)
+            RunConsoleCommand("sam", "slap", data.steamId)
+        end)
+    message:Send()
+end
+
+-- InlineKeyboard 2
 do
     local keyword = "Cat"
 

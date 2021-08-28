@@ -2,6 +2,7 @@
 A simple yet powerful Telegram bot API wrapper for Garry's Mod
 
 [Check Wiki](https://github.com/tochnonement/gtelegram/wiki)
+[Check Examples](https://github.com/tochnonement/gtelegram/tree/master/examples)
 
 # Features
 - Optimized message delivery

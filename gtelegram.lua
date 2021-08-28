@@ -428,7 +428,6 @@ function CONTENT:Send()
     local bot = self.bot
 
     assert(bot)
-    assert(#self.chats > 0, "Message can't be sent to nobody, add chats!")
 
     self:Validate()
     self:PrepareCallbacks()

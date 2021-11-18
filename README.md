@@ -1,11 +1,11 @@
 # gtelegram
-A simple yet powerful Telegram bot API wrapper for Garry's Mod
+Create your own **telegram bots** in **simple** and elegant way. Also there's a **rich documentation** provided, so it will be also **easy** and fun to do!
 
-[Check Wiki](https://github.com/tochnonement/gtelegram/wiki)
+[Wiki](https://github.com/tochnonement/gtelegram/wiki)
 
-[Check Examples](https://github.com/tochnonement/gtelegram/tree/master/examples)
+[Examples](https://github.com/tochnonement/gtelegram/tree/master/examples)
 
-# Features
+### 💡 Features
 - Optimized message delivery
 - Hook system
 - Commands
@@ -14,7 +14,7 @@ A simple yet powerful Telegram bot API wrapper for Garry's Mod
 - Polls, dice and etc.
 - Only one file
 
-# Example
+### ✍️ Example
 ```lua
 local bot = GTelegram("1988948436", "AAEWrMo-lo_wbvKhWsfI06Dx2Vyn8o8AuiQ")
 

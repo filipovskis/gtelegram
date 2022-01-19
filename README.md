@@ -29,3 +29,6 @@ timer.Create("BotThink", 0.1, 0, function()
     bot:Think()
 end)
 ```
+
+### ⚖ Credits
+- [Dash](https://github.com/SuperiorServers/dash) - function to explode text by quotes

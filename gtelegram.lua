@@ -532,10 +532,25 @@ end
 
 local BOT = {}
 BOT.__index = BOT
+BOT.__tostring = function(self)
+    return ("Bot (" .. self.id .. ")")
+end
 
 accessor(BOT, "pollRate")
 
 -- Basic
+
+function BOT:Log(text)
+    MsgC(Color(0, 0, 255), "[GTelegram] ", color_white, tostring(self), " -> ", text, "\n")
+end
+
+function BOT:Error(text)
+    MsgC(Color(0, 0, 255), "[GTelegram] ", Color(255, 0, 0), "[ERROR] ", color_white, tostring(self), " -> ", text, "\n")
+end
+
+function BOT:Success(text)
+    MsgC(Color(0, 0, 255), "[GTelegram] ", Color(0, 255, 0), "[SUCCESS] ", color_white, tostring(self), " -> ", text, "\n")
+end
 
 function BOT:GetPath()
     return "gtelegram/bot" .. self.id .. ".dat"
@@ -575,7 +590,7 @@ function BOT:Request(method, data, func)
                 func(self, result, body)
             end
         else
-            print("Error occured: ", result.error_code, result.description)
+            self:Error(string.format("Error occured via request: [%s] %s", tostring(result.error_code), result.description))
         end
 
         self.busy = false
@@ -828,7 +843,10 @@ function BOT:OnMessage(message)
 
             assert(callback, "No callback for command \"" .. cmdName .. "\"")
 
-            callback(self, message.from, unpack(cmdParts))
+            local success, reason = pcall(callback, self, message.from, unpack(cmdParts))
+            if (not success) then
+                self:Error(string.format("Error occured in command (%s) callback: %s", cmdName, reason))
+            end
         end
     end
 end

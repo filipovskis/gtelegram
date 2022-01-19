@@ -29,7 +29,7 @@ if not file.Exists("gtelegram", "DATA") then
 end
 
 -- Credits to Dash contributors
--- https://github.com/tochnonement/dash/blob/master/lua/dash/extensions/string.lua
+-- https://github.com/SuperiorServers/dash
 local function splitByQuotes(str)
 	str = ' ' .. str .. ' '
 	local res = {}

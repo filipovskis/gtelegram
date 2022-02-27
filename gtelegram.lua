@@ -28,24 +28,47 @@ if not file.Exists("gtelegram", "DATA") then
     file.CreateDir("gtelegram")
 end
 
--- Credits to Dash contributors
--- https://github.com/SuperiorServers/dash
 local function splitByQuotes(str)
-	str = ' ' .. str .. ' '
-	local res = {}
-	local ind = 1
-	while true do
-		local sInd, start = str:find('[^%s]', ind)
-		if not sInd then break end
-		ind = sInd + 1
-		local quoted = str:sub(sInd, sInd):match('["\']') and true or false
-		local fInd, finish = str:find(quoted and '["\']' or '[%s]', ind)
-		if not fInd then break end
-		ind = fInd + 1
-		local str = str:sub(quoted and sInd + 1 or sInd, fInd - 1)
-		res[#res + 1] = str
-	end
-	return res
+    local args = {}
+    local parts = {}
+    local startFrom = 0
+
+    while true do
+        local quoteStart, quoteEnd= string.find(str, "[%w%p]+", startFrom)
+
+        if quoteStart == nil then
+            break
+        end
+
+        startFrom = quoteEnd + 1
+
+        table.insert(parts, string.sub(str, quoteStart, quoteEnd))
+    end
+
+    local opened = false
+    local arg = ""
+
+    for _, part in ipairs(parts) do
+        local left = part:Left(1) == "\""
+        local right = part:Right(1) == "\""
+
+        if left and right then
+            table.insert(args, string.sub(part, 2, -2))
+        elseif left then
+            opened = true
+            arg = string.sub(part, 2)
+        elseif opened and right then
+            arg = arg .. " " .. string.sub(part, 1, -2)
+            table.insert(args, arg)
+            opened = false
+        elseif opened then
+            arg = arg .. " " .. part
+        else
+            table.insert(args, part)
+        end
+    end
+
+    return args
 end
 
 local function accessor(meta, key, name, type)
@@ -509,25 +532,10 @@ end
 
 local BOT = {}
 BOT.__index = BOT
-BOT.__tostring = function(self)
-    return ("Bot (" .. self.id .. ")")
-end
 
 accessor(BOT, "pollRate")
 
 -- Basic
-
-function BOT:Log(text)
-    MsgC(Color(0, 0, 255), "[GTelegram] ", color_white, tostring(self), " -> ", text, "\n")
-end
-
-function BOT:Error(text)
-    MsgC(Color(0, 0, 255), "[GTelegram] ", Color(255, 0, 0), "[ERROR] ", color_white, tostring(self), " -> ", text, "\n")
-end
-
-function BOT:Success(text)
-    MsgC(Color(0, 0, 255), "[GTelegram] ", Color(0, 255, 0), "[SUCCESS] ", color_white, tostring(self), " -> ", text, "\n")
-end
 
 function BOT:GetPath()
     return "gtelegram/bot" .. self.id .. ".dat"
@@ -567,7 +575,7 @@ function BOT:Request(method, data, func)
                 func(self, result, body)
             end
         else
-            self:Error(string.format("Error occured via request: [%s] %s", tostring(result.error_code), result.description))
+            print("Error occured: ", result.error_code, result.description)
         end
 
         self.busy = false
@@ -810,7 +818,7 @@ function BOT:OnMessage(message)
 
     if entities and entities[1].type == "bot_command" then
         local cmdParts = splitByQuotes(message.text)
-        local cmdName = string.sub(cmdParts[1], 2)
+        local cmdName = string.Explode("@", string.sub(cmdParts[1], 2))[1]
         local cmdObject = self:FindCommand(cmdName)
 
         table.remove(cmdParts, 1)
@@ -820,10 +828,11 @@ function BOT:OnMessage(message)
 
             assert(callback, "No callback for command \"" .. cmdName .. "\"")
 
-            local success, reason = pcall(callback, self, message.from, unpack(cmdParts))
-            if (not success) then
-                self:Error(string.format("Error occured in command (%s) callback: %s", cmdName, reason))
-            end
+            local from = message.from
+
+            from.chat = message.chat
+
+            callback(self, from, unpack(cmdParts))
         end
     end
 end
